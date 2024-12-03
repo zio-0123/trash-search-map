@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>開発者用 - ゴミ箱登録と管理</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        #map {
+            width: 100%;
+            height: 100vh;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        #location-status {
+            text-align: center;
+            margin: 10px 0;
+        }
+        #locate-me {
+            display: block;
+            margin: 10px auto;
+            padding: 10px 20px;
+            font-size: 16px;
+        }
+    </style>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+    <h1 style="text-align: center;">ゴミ箱登録と管理マップ</h1>
+    <div id="map"></div>
+    <p id="location-status"></p>
+    <button id="locate-me">現在地を表示</button>
+
+    <script>
+        // GitHub リポジトリ情報
+        const GITHUB_REPO = "your-username/trash-bin-map"; // リポジトリ名
+        const GITHUB_TOKEN = "your-personal-access-token"; // トークン
+
+        // 地図とゴミ箱データの初期化
+        var map = L.map('map').setView([35.6895, 139.6917], 13);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+        var trashBins = [];
+        var markers = [];
+
+        // GitHub API: データを取得
+        async function fetchTrashBins() {
+            const url = `https://api.github.com/repos/${GITHUB_REPO}/contents/trash_bins.json`;
+            const response = await fetch(url, {
+                headers: {
+                    Authorization: `Bearer ${GITHUB_TOKEN}`
+                }
+            });
+            const data = await response.json();
+            trashBins = JSON.parse(atob(data.content)); // Base64デコードしてJSONに変換
+            trashBins.forEach(addTrashBinToMap);
+        }
+
+        // GitHub API: データを保存
+        async function saveTrashBinsToServer() {
+            const url = `https://api.github.com/repos/${GITHUB_REPO}/contents/trash_bins.json`;
+            const sha = await getFileSHA();
+            const response = await fetch(url, {
+                method: "PUT",
+                headers: {
+                    Authorization: `Bearer ${GITHUB_TOKEN}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    message: "Update trash bins",
+                    content: btoa(JSON.stringify(trashBins)), // JSONをBase64エンコード
+                    sha: sha,
+                }),
+            });
+            if (response.ok) {
+                console.log("データ保存成功");
+            } else {
+                console.error("データ保存失敗:", await response.text());
+            }
+        }
+
+        // GitHub API: ファイルのSHAを取得
+        async function getFileSHA() {
+            const url = `https://api.github.com/repos/${GITHUB_REPO}/contents/trash_bins.json`;
+            const response = await fetch(url, {
+                headers: {
+                    Authorization: `Bearer ${GITHUB_TOKEN}`
+                }
+            });
+            const data = await response.json();
+            return data.sha; // SHAを返す
+        }
+
+        // ゴミ箱を地図に追加
+        function addTrashBinToMap(bin) {
+            const marker = L.marker([bin.lat, bin.lng]).addTo(map)
+                .bindPopup(`
+                    ${bin.description}<br>
+                    <button onclick="editTrashBin(${bin.id})">編集</button>
+                    <button onclick="deleteTrashBin(${bin.id})">削除</button>
+                `);
+            markers.push({ id: bin.id, marker: marker });
+        }
+
+        // ゴミ箱を編集
+        window.editTrashBin = function (id) {
+            const bin = trashBins.find(b => b.id === id);
+            if (!bin) return;
+
+            const newDescription = prompt("新しい説明を入力してください:", bin.description);
+            if (!newDescription) return;
+
+            bin.description = newDescription;
+
+            // ポップアップを更新
+            const markerObj = markers.find(m => m.id === id);
+            if (markerObj) {
+                markerObj.marker.setPopupContent(`
+                    ${newDescription}<br>
+                    <button onclick="editTrashBin(${id})">編集</button>
+                    <button onclick="deleteTrashBin(${id})">削除</button>
+                `);
+            }
+
+            saveTrashBinsToServer(); // サーバーに保存
+        };
+
+        // ゴミ箱を削除
+        window.deleteTrashBin = function (id) {
+            trashBins = trashBins.filter(b => b.id !== id);
+
+            const markerObj = markers.find(m => m.id === id);
+            if (markerObj) {
+                map.removeLayer(markerObj.marker);
+                markers = markers.filter(m => m.id !== id);
+            }
+
+            saveTrashBinsToServer(); // サーバーに保存
+        };
+
+        // 初期化: データを取得
+        fetchTrashBins();
+    </script>
+</body>
+</html>
